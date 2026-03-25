@@ -117,7 +117,7 @@ A 1% improvement in not repeating mistakes compounds. Over 1000 tool executions,
 
 ## Status
 
-- Version 1.0.0
+- Version 1.1.3
 - Built for OpenCode
 - Vector similarity via @zvec/zvec
 
