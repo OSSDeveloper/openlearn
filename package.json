@@ -1,0 +1,37 @@
+{
+  "name": "@ossdeveloper/openlearn",
+  "version": "1.0.0",
+  "description": "Self-correcting learning plugin for OpenCode - learns from tool failures and successes using vector similarity",
+  "main": "dist/plugin.js",
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "bun build src/plugin.ts --target=bun --outfile=dist/plugin.js --external @zvec/zvec --external @opencode-ai/plugin",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@zvec/zvec": "^0.2.3"
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": "^1.0.0"
+  },
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "learning",
+    "ai",
+    "agent"
+  ],
+  "author": "ossdeveloper",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/OSSDeveloper/openlearn.git"
+  },
+  "bugs": {
+    "url": "https://github.com/OSSDeveloper/openlearn/issues"
+  },
+  "homepage": "https://github.com/OSSDeveloper/openlearn#readme"
+}
