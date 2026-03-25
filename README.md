@@ -1,6 +1,51 @@
 # openlearn
 
-Self-correcting learning plugin for OpenCode - learns from tool failures and successes using vector similarity.
+**Make your coding agent learn from its mistakes.**
+
+openlearn is a self-correcting memory layer for OpenCode. It watches what fails, figures out *why*, and whispers the fix before you hit retry.
+
+No more repeating the same error 47 times. No more "permission denied" hitting you twice. openlearn builds a model of your workspace's quirks—and gets smarter every session.
+
+---
+
+## Why This Exists
+
+Every great agent needs memory.
+
+OpenCode is powerful. But it forgets. The same SSH key permissions error. The same Docker cache issue. The same rsync --delete disaster.
+
+**openlearn fixes that.**
+
+It watches failures, extracts patterns, and feeds context back before you waste another minute on the same mistake.
+
+---
+
+## What It Learns
+
+### Error Patterns → Actionable Constraints
+```
+"permission denied"  →  "Use sudo or check file permissions"
+"no such file"       →  "Verify file path exists before operation"
+"connection timeout" →  "Check network connectivity and endpoint"
+```
+
+Not vague error messages. **Directives.** Things you can actually act on.
+
+### Tool Sequences
+Detects chains that work:
+```
+git-add → git-commit → git-push  (89% success rate)
+```
+
+So when you start `git add .`, openlearn knows what's coming—and prepares accordingly.
+
+### Workspace Conventions
+Learns *your* patterns:
+- Commit message formats you actually use
+- Whether you prefer `git add .` or selective staging
+- Project-specific quirks
+
+---
 
 ## Installation
 
@@ -8,33 +53,72 @@ Self-correcting learning plugin for OpenCode - learns from tool failures and suc
 npm install -g @ossdeveloper/openlearn
 ```
 
-Add to OpenCode config (`~/.config/opencode/opencode.json`):
+Add to your OpenCode config (`~/.config/opencode/opencode.json`):
+
 ```json
 {
-  "plugin": [
+  "plugins": [
     "@ossdeveloper/openlearn"
   ]
 }
 ```
 
-## What It Does
+That's it. It just works.
 
-- **Error Patterns**: Maps tool failures to actionable constraints
-- **Tool Sequences**: Tracks successful chains (e.g., `git-add → git-commit → git-push`)
-- **Workspace Conventions**: Learns your preferences (commit format, git add patterns)
-- **Unresolved Tracking**: Alerts you when errors keep happening without resolution
+---
 
-## Data Storage
+## How It Works
 
-All learned data stored in `~/.openlearn/`:
-- `lessons.json` - Error → constraint mappings
-- `lessons.zvec` - Vector embeddings
-- `sequences.json` - Tool execution chains
-- `conventions.json` - Workspace patterns
-- `unresolved.json` - Errors needing attention
+**Before** a tool runs → openlearn checks relevant lessons and warns you:
+```
+[openlearn] Tool npm:
+⚠️ Check network connectivity and endpoint availability
+```
 
-**Privacy**: API keys, IPs, and file paths are sanitized before storage.
+**After** a tool fails → openlearn analyzes the error, creates a lesson, stores it:
+```
+[openlearn] 📚 New lesson stored: "Check network connectivity"
+```
 
-## License
+**After** a tool succeeds → openlearn closes the loop. The error is resolved. The lesson matures.
 
-MIT License
+**On recurring errors** (5+ occurrences without resolution):
+```
+[openlearn] ⚠️ UNRESOLVED ERROR (7x): "connection timeout"
+[openlearn] Consider adding a lesson or fixing the root cause.
+```
+
+---
+
+## Your Data Stays Yours
+
+All data lives in `~/.openlearn/`:
+- `lessons.json` — Error → constraint mappings
+- `sequences.json` — Successful tool chains
+- `conventions.json` — Your workspace patterns
+- `unresolved.json` — Recurring errors needing attention
+- `*.zvec` — Vector embeddings for semantic search
+
+**Privacy first.** API keys, IPs, and file paths are sanitized before storage. Your secrets don't leave your machine.
+
+---
+
+## The Philosophy
+
+Most tools optimize for *doing more*.
+
+openlearn optimizes for *doing less repeated work*.
+
+A 1% improvement in not repeating mistakes compounds. Over 1000 tool executions, that's 10 errors you didn't have to debug manually. That's hours reclaimed.
+
+**The best error is the one you only see once.**
+
+---
+
+## Status
+
+- Version 1.0.0
+- Built for OpenCode
+- Vector similarity via @zvec/zvec
+
+MIT License. Use it. Break it. Improve it.
