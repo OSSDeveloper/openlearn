@@ -1,6 +1,6 @@
 {
   "name": "@ossdeveloper/openlearn",
-  "version": "2.0.4",
+  "version": "2.0.5",
   "description": "Self-correcting memory layer for OpenCode - MCP server and plugin with learning modes, approval workflow, and rollback support",
   "main": "dist/plugin.js",
   "bin": {
