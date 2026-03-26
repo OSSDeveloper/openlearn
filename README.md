@@ -1,127 +1,35 @@
-# openlearn
+# 🧠 openlearn
 
-**Make your coding agent learn from its mistakes.**
+**⚡ The self-correcting memory layer for coding agents.**
 
-openlearn is a self-correcting memory layer for OpenCode. It watches what fails, figures out *why*, and whispers the fix before you hit retry.
+Your agent is smart.  
+But it has amnesia.
 
-No more repeating the same error 47 times. No more "permission denied" hitting you twice. openlearn builds a model of your workspace's quirks—and gets smarter every session.
+It solves the same damn problem 47 times.  
+Permission errors. Docker cache bullshit. Wrong file paths. Network quirks.
 
----
+**openlearn ends that forever.** 🚀
 
-## Why This Exists
+It watches failures, understands *why* they happen, turns them into hard constraints, and injects the fix **before** you waste another cycle.
 
-Every great agent needs memory.
+No more repeating mistakes.  
+Just relentless progress.
 
-OpenCode is powerful. But it forgets. The same SSH key permissions error. The same Docker cache issue. The same rsync --delete disaster.
-
-**openlearn fixes that.**
-
-It watches failures, extracts patterns, and feeds context back before you waste another minute on the same mistake.
-
----
-
-## Learning Modes
-
-openlearn has three learning modes to control how it operates:
-
-| Mode | Behavior | Use Case |
-|------|----------|----------|
-| `full` | Learn automatically + auto-inject | Personal use, fast iteration |
-| `suggest` | Learn but require approval | Team/production safety |
-| `off` | Don't learn anything new | Read-only mode |
-
-Set via: `openlearn: config set learningMode suggest`
+> 🧱 **Physics Over Prompts**: An agent skill is a wish. openlearn is gravity. You can't write enough system prompts to stop a distracted language model from repeating a mistake. You can build a trap it mathematically cannot escape. We chose the trap.
 
 ---
 
-## Commands
-
-All commands use the `openlearn:` prefix in chat.
-
-### Viewing Learnings
-```
-openlearn: help                    # Show all commands
-openlearn: list                    # Summary of learnings
-openlearn: list --all              # Full paginated list
-openlearn: list --pending          # Only pending review
-openlearn: list <tool>            # Filter by tool (npm, git, etc)
-```
-
-### Review & Approval
-```
-openlearn: review                  # Interactive pending review
-openlearn: approve <id>           # Approve specific lesson
-openlearn: reject <id>            # Reject specific lesson
-```
-
-### History & Rollback
-```
-openlearn: history <id>           # Show version history of a lesson
-openlearn: rollback <id>          # Interactively rollback a lesson
-```
-
-### Backup & Restore
-```
-openlearn: export                 # Print JSON to copy
-openlearn: import <json>          # Import from pasted JSON
-```
-
-### Configuration
-```
-openlearn: config                 # Show current config
-openlearn: config --list          # List all config options
-openlearn: config set <key> <val> # Set a config value
-```
-
-### Safety
-```
-openlearn: clear                  # Clear ALL learnings (confirm prompt)
-openlearn: clear --lessons        # Clear only lessons, keep sequences
-openlearn: clear --pending        # Clear only pending
-```
-
----
-
-## What It Learns
-
-### Error Patterns → Actionable Constraints
-```
-"permission denied"  →  "Use sudo or check file permissions"
-"no such file"       →  "Verify file path exists before operation"
-"connection timeout" →  "Check network connectivity and endpoint"
-```
-
-Not vague error messages. **Directives.** Things you can actually act on.
-
-### Tool Sequences
-Detects chains that work:
-```
-git-add → git-commit → git-push  (89% success rate)
-```
-
-So when you start `git add .`, openlearn knows what's coming—and prepares accordingly.
-
-### Workspace Conventions
-Learns *your* patterns:
-- Commit message formats you actually use
-- Whether you prefer `git add .` or selective staging
-- Project-specific quirks
-
----
-
-## Installation
+## ⚙️ Installation (Takes 2 Minutes)
 
 ```bash
 npm install -g @ossdeveloper/openlearn
 ```
 
-Add to your OpenCode config (`~/.config/opencode/opencode.json`):
+Then add to your `~/.config/opencode/opencode.json`:
 
 ```json
 {
-  "plugins": [
-    "@ossdeveloper/openlearn"
-  ],
+  "plugin": ["@ossdeveloper/openlearn"],
   "mcp": {
     "openlearn": {
       "type": "local",
@@ -131,82 +39,147 @@ Add to your OpenCode config (`~/.config/opencode/opencode.json`):
 }
 ```
 
-That's it. It just works.
+Restart OpenCode. Done. ✅
+
+It runs locally. Your lessons stay on your machine. No cloud. No bullshit. 🛡️
 
 ---
 
-## How It Works
+## 🚨 The Problem
 
-**Before** a tool runs → openlearn checks relevant lessons and injects them as context:
-```
-[LEARNED CONSTRAINTS]
-Lesson 1: Check network connectivity and endpoint availability
-```
+**Before openlearn:**
+- Session 1: Agent hits Docker cache bug. You fix it manually. 45 min lost.
+- Session 2: Same Docker bug. Agent has no memory. You fix it again. 45 min lost.
+- Session 47: *Same. Exact. Bug.*
 
-**After** a tool fails → openlearn analyzes the error, creates a lesson:
-```
-Mode full:  Lesson stored: "Check network connectivity"
-Mode suggest: New lesson pending review. Run `openlearn: review` to approve.
-```
-
-**After** a tool succeeds → openlearn reinforces the lesson, confidence increases.
-
-**On recurring errors** (5+ occurrences without resolution):
-```
-⚠️ UNRESOLVED ERROR (7x): "connection timeout"
-Run `openlearn: list --pending` to review
-```
+**After openlearn:**
+- Session 1: Agent hits Docker bug. openlearn captures it.
+- Session 2 onwards: Constraint auto-injected before the agent even tries. Bug never happens again. ⚡
 
 ---
 
-## Your Data Stays Yours
+## 🛠️ How It Works (Simple & Brutal)
 
-All data lives in `~/.openlearn/`:
-- `lessons.json` — Active error → constraint mappings
-- `pending.json` — Lessons awaiting approval
-- `history.json` — Version history for rollback
-- `audit.json` — Full audit trail
-- `config.json` — Your settings
-- `sequences.json` — Successful tool chains
-- `conventions.json` — Your workspace patterns
-- `unresolved.json` — Recurring errors needing attention
-- `*.zvec` — Vector embeddings for semantic search
+1. ❌ Agent tries something → fails
+2. 🔍 openlearn analyzes root cause
+3. 🛡️ Converts failure into **actionable constraint**
+4. ✨ Next time the same situation appears → constraint is injected automatically
 
-**Privacy first.** API keys, IPs, and file paths are sanitized before storage. Your secrets don't leave your machine.
+**Result:** The best error is the one you only see **once**. 🎯
 
 ---
 
-## Config Options
+## 🎛️ Learning Modes (Choose Your Risk Level)
 
-| Key | Values | Default | Description |
-|-----|--------|---------|-------------|
-| `learningMode` | `full`, `suggest`, `off` | `full` | How lessons are learned |
-| `autoInjectThreshold` | `0.0` - `1.0` | `0.7` | Min confidence to auto-inject |
-| `confidenceDecay` | `true`, `false` | `true` | Lessons lose confidence over time |
-| `showSequences` | `true`, `false` | `true` | Detect and show tool sequences |
-| `showConventions` | `true`, `false` | `true` | Learn workspace conventions |
+| Mode     | Behavior                          | When to Use                     |
+|----------|-----------------------------------|---------------------------------|
+| `full`   | Auto-learn + auto-inject          | ⚡ Solo devs who want maximum speed |
+| `suggest`| Learn but require human approval  | 🛡️ Teams & production safety       |
+| `off`    | No new learning                   | 🔒 When you want read-only mode    |
 
----
-
-## The Philosophy
-
-Most tools optimize for *doing more*.
-
-openlearn optimizes for *doing less repeated work*.
-
-A 1% improvement in not repeating mistakes compounds. Over 1000 tool executions, that's 10 errors you didn't have to debug manually. That's hours reclaimed.
-
-**The best error is the one you only see once.**
+Set it with:  
+`openlearn: config set learningMode suggest`
 
 ---
 
-## Status
+## ✨ Hidden Superpowers
 
-- Version 2.0.2
-- Built for OpenCode
-- Vector similarity via @zvec/zvec
-- MCP server for direct tool access
+openlearn isn't a dumb log file. It’s engineered from first principles to act as an autonomous neural net for your local machine:
 
-**New in v2.0:** Learning modes, approval workflow, rollback, audit log, MCP server, and OpenCode slash commands auto-installed.
+- 🧠 **Instant Pattern Recognition**: It doesn't rely on cloud servers or slow APIs. It runs a lightning-fast mathematical engine locally on your hardware to match the exact physics of an error the moment it happens.
+- 🛡️ **Absolute Privacy**: Before a mistake even enters its memory, it mathematically strips out your passwords, API keys, and local paths. Paranoid-level security by default. Your data stays yours.
+- ⏳ **Organic Forgetting**: Agents shouldn't be bogged down by stale hacks. If a fix hasn't been useful in months, the system slowly lets its confidence decay. It only remembers what's actually critical for survival.
+- ⏪ **Time Travel**: Every rule it learns is permanently tracked on an immutable timeline. If a new rule makes things worse, you can hit undo and revert the agent's brain to a previously stable state instantly.
+- 🌍 **Environmental Quarantine**: It understands physical boundaries. Weird quirks from your Python backend don't cross-contaminate your React frontend. It isolates its memory strictly to the project you're working in.
+- 📡 **Hive Mind Telepathy**: If it battles a vicious Docker bug in Project A, it fundamentally absorbs the truth of that failure. When Project B inevitably hits that same wall, the fix instantly teleports over. You solve an error once, across everything.
 
-MIT License. Use it. Break it. Improve it.
+---
+
+## 🎯 What openlearn Actually Learns
+
+Real patterns from the codebase — not hand-written rules:
+
+| When agent hits... | openlearn hard-injects... |
+|---|---|
+| `permission denied` | `Use sudo or check file permissions` |
+| `no such file or directory` | `Verify file path exists before operation` |
+| `docker ... failed` | `Rebuild without cache, ensure Dockerfile exists` |
+| `ssh: connect to host ...` | `Verify key permissions (chmod 600), check host key acceptance` |
+| `connection timeout` | `Check network connectivity and endpoint availability` |
+| `401 unauthorized` | `Verify credentials and authentication tokens` |
+
+- ✅ **Successful Tool Sequences** — learns that *your* project always does `git add . → git commit → git push` and surfaces it when relevant.
+- 📂 **Workspace Conventions** — picks up your naming patterns, preferred flags, project-specific workflows automatically.
+
+It doesn't log errors. It builds a **living model** 🧠 of how *your* machine and projects actually behave.
+
+---
+
+## 💻 Commands (OpenCode Slash Commands)
+
+Type `/` in OpenCode chat and you'll see these appear:
+
+| Slash Command | What it does |
+|---|---|
+| `/openlearn` | OpenLearn — self-correcting memory layer (help) |
+| `/openlearn-list` | List all lessons and learnings |
+| `/openlearn-review` | Interactively review and approve/reject pending lessons |
+| `/openlearn-approve` | Approve a specific pending lesson by ID |
+| `/openlearn-reject` | Reject a specific pending lesson by ID |
+| `/openlearn-history` | Show version history of a lesson |
+| `/openlearn-rollback` | Rollback a lesson to a previous version |
+| `/openlearn-export` | Export all openlearn data as JSON |
+| `/openlearn-import` | Import data from a JSON backup |
+| `/openlearn-config` | Show or modify configuration |
+| `/openlearn-clear` | Clear openlearn data (lessons / pending / all) |
+
+**What `/openlearn-list` looks like in practice:**
+
+```
+📚 openlearn Status
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Mode: 📖 Learning + auto-inject
+Auto-inject threshold: 70%
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Lessons: 12
+  🟢 High: 8 | 🟡 Medium: 3 | 🔴 Low: 1
+⏳ Pending: 2
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Sequences: 4 | Conventions: 6
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Run /openlearn-list [filter=all] for full list
+Run /openlearn-list [filter=pending] for pending review
+```
+
+🟢 = High confidence (auto-injected) | 🟡 = Learning | 🔴 = Weak, fading out
+
+---
+
+## 🔮 Vision
+
+This is just the beginning.
+
+Imagine agents that **never** forget your environment. 🌌  
+That compound knowledge across weeks and months. 📈  
+That become true extensions of *you*. 🦾
+
+openlearn is the memory upgrade the entire agent ecosystem needs.
+
+---
+
+## 🤝 Get Involved
+
+- ⭐ Star the repo if this resonates
+- 🧪 Try it in `suggest` mode first
+- 💬 Share the weirdest error your agent keeps repeating — we'll make openlearn learn it
+
+Built with obsession for eliminating repetitive friction in agentic coding. ❤️
+
+
+**Let's make coding agents actually intelligent — not just fast.** 🚀
+
+---
+
+**📦 Repository**: [github.com/OSSDeveloper/openlearn](https://github.com/OSSDeveloper/openlearn)  
+**🔖 Version**: 2.0.5  
+**📄 License**: MIT

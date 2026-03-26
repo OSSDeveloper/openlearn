@@ -385,7 +385,12 @@ export function sanitizeError(error: string): string {
     .replace(/0x[0-9a-fA-F]+/g, "<HEX>")
     .replace(/\/home\/[^\/]+/g, "/home/<USER>")
     .replace(/\/Users\/[^\/]+/g, "/Users/<USER>")
-    .replace(/sk-[a-zA-Z0-9]{20,}/g, "<API_KEY>");
+    .replace(/sk-[a-zA-Z0-9]{20,}/g, "<API_KEY>")
+    .replace(/sha256:[a-f0-9]{64}/g, "<DOCKER_HASH>")
+    .replace(/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/g, "<UUID>")
+    .replace(/container-[a-f0-9]{64}/g, "<CONTAINER>")
+    .replace(/(\/home\/<USER>\/)[^\/]+\//g, "$1<PROJECT>/")
+    .replace(/(\/Users\/<USER>\/)[^\/]+\//g, "$1<PROJECT>/");
 }
 
 export function extractWorkspace(cwd: string | undefined): string {
