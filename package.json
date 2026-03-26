@@ -1,6 +1,6 @@
 {
   "name": "@ossdeveloper/openlearn",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "description": "Self-correcting memory layer for OpenCode - MCP server and plugin with learning modes, approval workflow, and rollback support",
   "main": "dist/plugin.js",
   "bin": {
@@ -8,7 +8,8 @@
   },
   "type": "module",
   "files": [
-    "dist"
+    "dist",
+    "scripts"
   ],
   "scripts": {
     "build": "bun build src/plugin.ts --target=bun --outfile=dist/plugin.js --external @zvec/zvec --external @opencode-ai/plugin",
