@@ -1,71 +1,69 @@
 import type { Plugin } from "@opencode-ai/plugin";
-import path from "path";
-import fs from "fs";
-import { ZVecCollectionSchema, ZVecCreateAndOpen, ZVecDataType, ZVecDoc } from "@zvec/zvec";
-
-const DATA_DIR = path.join(process.env.HOME || "/root", ".openlearn");
-const DB_PATH = path.join(DATA_DIR, "lessons.json");
-const ZVEC_PATH = path.join(DATA_DIR, "lessons.zvec");
-const SEQ_ZVEC_PATH = path.join(DATA_DIR, "sequences.zvec");
-const CONV_ZVEC_PATH = path.join(DATA_DIR, "conventions.zvec");
-const UNRESOLVED_PATH = path.join(DATA_DIR, "unresolved.json");
+import { ZVecDoc } from "@zvec/zvec";
+import {
+  DATA_DIR,
+  DB_PATH,
+  PENDING_PATH,
+  CONFIG_PATH,
+  AUDIT_PATH,
+  HISTORY_PATH,
+  ZVEC_PATH,
+  SEQ_ZVEC_PATH,
+  CONV_ZVEC_PATH,
+  UNRESOLVED_PATH,
+  AUTO_INJECT_THRESHOLD,
+  type LearningMode,
+  type Lesson,
+  type Config,
+  type AuditEntry,
+  type AuditAction,
+  type LessonHistory,
+  type LessonHistoryEntry,
+  type ToolSequence,
+  type WorkspaceConvention,
+  type PendingLesson,
+  type ChatResponse,
+  DEFAULT_CONFIG,
+  initLessonsZvec,
+  initSequencesZvec,
+  initConventionsZvec,
+  ensureDataDir,
+  loadConfig,
+  saveConfig,
+  loadAllLessons,
+  loadLessons,
+  saveLessons,
+  loadPending,
+  savePending,
+  loadSequences,
+  saveSequences,
+  loadConventions,
+  saveConventions,
+  loadUnresolved,
+  saveUnresolved,
+  loadAudit,
+  saveAudit,
+  addAuditEntry,
+  loadHistory,
+  saveHistory,
+  addHistoryEntry,
+  generateLessonId,
+  generateSequenceId,
+  generateConventionId,
+  sanitizeError,
+  extractWorkspace,
+  textToEmbedding
+} from "./core.js";
 
 const SEQ_WINDOW = 5;
 const UNRESOLVED_THRESHOLD = 5;
-
-interface Lesson {
-  id: string;
-  tool: string;
-  workspacePattern: string;
-  errorSemantic: string;
-  constraint: string;
-  successIndicator?: string;
-  confidence: number;
-  triggerCount: number;
-  createdAt: string;
-  lastRetrieved?: string;
-  lastAccessed?: string;
-  vectorId?: number;
-  unresolvedCount?: number;
-}
-
-interface ToolSequence {
-  id: string;
-  tools: string[];
-  workspacePattern: string;
-  successRate: number;
-  totalRuns: number;
-  successfulRuns: number;
-  createdAt: string;
-  lastAccessed?: string;
-}
-
-interface WorkspaceConvention {
-  id: string;
-  workspacePattern: string;
-  conventionType: string;
-  value: string;
-  confidence: number;
-  sampleCount: number;
-  createdAt: string;
-}
+const LEARN_THRESHOLD = 0.3;
 
 interface SequenceStep {
   tool: string;
   args: Record<string, unknown>;
   success: boolean;
   timestamp: number;
-}
-
-interface UnresolvedError {
-  id: string;
-  tool: string;
-  workspacePattern: string;
-  errorEmbedding: number[];
-  errorText: string;
-  occurrences: number;
-  firstSeen: string;
-  lastSeen: string;
 }
 
 interface FailureEvent {
@@ -76,224 +74,18 @@ interface FailureEvent {
   timestamp: string;
 }
 
-let lessonsCollection: ReturnType<typeof ZVecCreateAndOpen> | null = null;
-let sequencesCollection: ReturnType<typeof ZVecCreateAndOpen> | null = null;
-let conventionsCollection: ReturnType<typeof ZVecCreateAndOpen> | null = null;
+let lessonsCollection: ReturnType<typeof initLessonsZvec> | null = null;
+let sequencesCollection: ReturnType<typeof initSequencesZvec> | null = null;
+let conventionsCollection: ReturnType<typeof initConventionsZvec> | null = null;
 
-function initLessonsZvec() {
-  if (lessonsCollection) return lessonsCollection;
-
-  const schema = new ZVecCollectionSchema({
-    name: "lessons",
-    vectors: {
-      name: "embedding",
-      dataType: ZVecDataType.VECTOR_FP32,
-      dimension: 384
-    }
-  });
-
-  try {
-    lessonsCollection = ZVecCreateAndOpen(ZVEC_PATH, schema);
-  } catch {
-    try {
-      fs.rmSync(ZVEC_PATH, { force: true });
-      lessonsCollection = ZVecCreateAndOpen(ZVEC_PATH, schema);
-    } catch {
-      lessonsCollection = null;
-    }
-  }
-
-  return lessonsCollection;
-}
-
-function initSequencesZvec() {
-  if (sequencesCollection) return sequencesCollection;
-
-  const schema = new ZVecCollectionSchema({
-    name: "sequences",
-    vectors: {
-      name: "embedding",
-      dataType: ZVecDataType.VECTOR_FP32,
-      dimension: 384
-    }
-  });
-
-  try {
-    sequencesCollection = ZVecCreateAndOpen(SEQ_ZVEC_PATH, schema);
-  } catch {
-    try {
-      fs.rmSync(SEQ_ZVEC_PATH, { force: true });
-      sequencesCollection = ZVecCreateAndOpen(SEQ_ZVEC_PATH, schema);
-    } catch {
-      sequencesCollection = null;
-    }
-  }
-
-  return sequencesCollection;
-}
-
-function initConventionsZvec() {
-  if (conventionsCollection) return conventionsCollection;
-
-  const schema = new ZVecCollectionSchema({
-    name: "conventions",
-    vectors: {
-      name: "embedding",
-      dataType: ZVecDataType.VECTOR_FP32,
-      dimension: 384
-    }
-  });
-
-  try {
-    conventionsCollection = ZVecCreateAndOpen(CONV_ZVEC_PATH, schema);
-  } catch {
-    try {
-      fs.rmSync(CONV_ZVEC_PATH, { force: true });
-      conventionsCollection = ZVecCreateAndOpen(CONV_ZVEC_PATH, schema);
-    } catch {
-      conventionsCollection = null;
-    }
-  }
-
-  return conventionsCollection;
-}
-
-function ensureDataDir() {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-}
-
-function loadLessons(): Lesson[] {
-  ensureDataDir();
-  if (!fs.existsSync(DB_PATH)) {
-    return [];
-  }
-  try {
-    return JSON.parse(fs.readFileSync(DB_PATH, "utf-8"));
-  } catch {
-    return [];
-  }
-}
-
-function saveLessons(lessons: Lesson[]) {
-  ensureDataDir();
-  fs.writeFileSync(DB_PATH, JSON.stringify(lessons, null, 2));
-}
-
-function loadSequences(): ToolSequence[] {
-  const path = DB_PATH.replace("lessons.json", "sequences.json");
-  ensureDataDir();
-  if (!fs.existsSync(path)) {
-    return [];
-  }
-  try {
-    return JSON.parse(fs.readFileSync(path, "utf-8"));
-  } catch {
-    return [];
-  }
-}
-
-function saveSequences(sequences: ToolSequence[]) {
-  const path = DB_PATH.replace("lessons.json", "sequences.json");
-  ensureDataDir();
-  fs.writeFileSync(path, JSON.stringify(sequences, null, 2));
-}
-
-function loadConventions(): WorkspaceConvention[] {
-  const path = DB_PATH.replace("lessons.json", "conventions.json");
-  ensureDataDir();
-  if (!fs.existsSync(path)) {
-    return [];
-  }
-  try {
-    return JSON.parse(fs.readFileSync(path, "utf-8"));
-  } catch {
-    return [];
-  }
-}
-
-function saveConventions(conventions: WorkspaceConvention[]) {
-  const path = DB_PATH.replace("lessons.json", "conventions.json");
-  ensureDataDir();
-  fs.writeFileSync(path, JSON.stringify(conventions, null, 2));
-}
-
-function loadUnresolved(): UnresolvedError[] {
-  ensureDataDir();
-  if (!fs.existsSync(UNRESOLVED_PATH)) {
-    return [];
-  }
-  try {
-    return JSON.parse(fs.readFileSync(UNRESOLVED_PATH, "utf-8"));
-  } catch {
-    return [];
-  }
-}
-
-function saveUnresolved(unresolved: UnresolvedError[]) {
-  ensureDataDir();
-  fs.writeFileSync(UNRESOLVED_PATH, JSON.stringify(unresolved, null, 2));
-}
-
-function generateLessonId(): string {
-  return `lesson_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-}
-
-function generateSequenceId(): string {
-  return `seq_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-}
-
-function generateConventionId(): string {
-  return `conv_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-}
-
-function sanitizeError(error: string): string {
-  return error
-    .replace(/\d+\.\d+\.\d+\.\d+/g, "<IP>")
-    .replace(/0x[0-9a-fA-F]+/g, "<HEX>")
-    .replace(/\/home\/[^\/]+/g, "/home/<USER>")
-    .replace(/\/Users\/[^\/]+/g, "/Users/<USER>")
-    .replace(/sk-[a-zA-Z0-9]{20,}/g, "<API_KEY>");
-}
-
-function extractWorkspace(cwd: string | undefined): string {
-  if (!cwd) return "unknown";
-  const parts = cwd.split("/");
-  if (parts.length >= 3 && parts[2] === "Users") {
-    return `~/.../${parts[parts.length - 1]}`;
-  }
-  return cwd;
-}
-
-function textToEmbedding(text: string): number[] {
-  const embedding = new Array(384).fill(0);
-  const words = text.toLowerCase().split(/\s+/);
-  const uniqueWords = [...new Set(words)];
-
-  for (let i = 0; i < uniqueWords.length; i++) {
-    const word = uniqueWords[i];
-    let hash = 0;
-    for (let j = 0; j < word.length; j++) {
-      hash = ((hash << 5) - hash) + word.charCodeAt(j);
-      hash = hash & hash;
-    }
-    const idx = Math.abs(hash) % 384;
-    embedding[idx] += 1.0;
-  }
-
-  const norm = Math.sqrt(embedding.reduce((sum, val) => sum + val * val, 0));
-  if (norm > 0) {
-    for (let i = 0; i < embedding.length; i++) {
-      embedding[i] /= norm;
-    }
-  }
-
-  return embedding;
+function initZVecCollections() {
+  lessonsCollection = initLessonsZvec();
+  sequencesCollection = initSequencesZvec();
+  conventionsCollection = initConventionsZvec();
 }
 
 function generateConstraintFromEmbedding(errorEmbedding: number[]): { constraint: string; successIndicator: string } {
-  const coll = initLessonsZvec();
+  const coll = lessonsCollection;
   if (!coll) {
     return { constraint: "Analyze error message and adjust approach", successIndicator: "operation completed successfully" };
   }
@@ -355,102 +147,35 @@ function extractErrorMessage(output: unknown): string {
   return "Unknown error";
 }
 
-function createLessonFromFailure(failure: FailureEvent): Lesson {
+function createLessonFromFailure(failure: FailureEvent): PendingLesson {
   const tool = failure.tool;
   const error = sanitizeError(failure.error);
   const errorLower = error.toLowerCase();
 
+  let constraint = "Analyze error message and adjust approach";
+  let successIndicator = "operation completed successfully";
+
   if (errorLower.includes("permission denied") || errorLower.includes("access denied")) {
-    return {
-      id: generateLessonId(),
-      tool,
-      workspacePattern: failure.workspace.includes("/") ? failure.workspace.split("/").slice(-2).join("/") : "*",
-      errorSemantic: error.substring(0, 200),
-      constraint: "Use sudo or check file permissions",
-      successIndicator: "command executed without permission errors",
-      confidence: 0.5,
-      triggerCount: 1,
-      createdAt: new Date().toISOString(),
-      lastRetrieved: new Date().toISOString()
-    };
+    constraint = "Use sudo or check file permissions";
+    successIndicator = "command executed without permission errors";
   } else if (errorLower.includes("no such file") || errorLower.includes("not found")) {
-    return {
-      id: generateLessonId(),
-      tool,
-      workspacePattern: failure.workspace.includes("/") ? failure.workspace.split("/").slice(-2).join("/") : "*",
-      errorSemantic: error.substring(0, 200),
-      constraint: "Verify file path exists before operation",
-      successIndicator: "file/path found and accessible",
-      confidence: 0.5,
-      triggerCount: 1,
-      createdAt: new Date().toISOString(),
-      lastRetrieved: new Date().toISOString()
-    };
+    constraint = "Verify file path exists before operation";
+    successIndicator = "file/path found and accessible";
   } else if (errorLower.includes("connection") || errorLower.includes("timeout")) {
-    return {
-      id: generateLessonId(),
-      tool,
-      workspacePattern: failure.workspace.includes("/") ? failure.workspace.split("/").slice(-2).join("/") : "*",
-      errorSemantic: error.substring(0, 200),
-      constraint: "Check network connectivity and endpoint availability",
-      successIndicator: "connection established successfully",
-      confidence: 0.5,
-      triggerCount: 1,
-      createdAt: new Date().toISOString(),
-      lastRetrieved: new Date().toISOString()
-    };
+    constraint = "Check network connectivity and endpoint availability";
+    successIndicator = "connection established successfully";
   } else if (errorLower.includes("authentication") || errorLower.includes("unauthorized")) {
-    return {
-      id: generateLessonId(),
-      tool,
-      workspacePattern: failure.workspace.includes("/") ? failure.workspace.split("/").slice(-2).join("/") : "*",
-      errorSemantic: error.substring(0, 200),
-      constraint: "Verify credentials and authentication tokens",
-      successIndicator: "authenticated successfully",
-      confidence: 0.5,
-      triggerCount: 1,
-      createdAt: new Date().toISOString(),
-      lastRetrieved: new Date().toISOString()
-    };
+    constraint = "Verify credentials and authentication tokens";
+    successIndicator = "authenticated successfully";
   } else if (errorLower.includes("docker")) {
-    return {
-      id: generateLessonId(),
-      tool,
-      workspacePattern: failure.workspace.includes("/") ? failure.workspace.split("/").slice(-2).join("/") : "*",
-      errorSemantic: error.substring(0, 200),
-      constraint: "For Docker: rebuild without cache, ensure Dockerfile exists",
-      successIndicator: "docker build succeeded",
-      confidence: 0.5,
-      triggerCount: 1,
-      createdAt: new Date().toISOString(),
-      lastRetrieved: new Date().toISOString()
-    };
+    constraint = "For Docker: rebuild without cache, ensure Dockerfile exists";
+    successIndicator = "docker build succeeded";
   } else if (errorLower.includes("ssh")) {
-    return {
-      id: generateLessonId(),
-      tool,
-      workspacePattern: failure.workspace.includes("/") ? failure.workspace.split("/").slice(-2).join("/") : "*",
-      errorSemantic: error.substring(0, 200),
-      constraint: "For SSH: verify key permissions (chmod 600), check host key acceptance",
-      successIndicator: "ssh connection successful",
-      confidence: 0.5,
-      triggerCount: 1,
-      createdAt: new Date().toISOString(),
-      lastRetrieved: new Date().toISOString()
-    };
+    constraint = "For SSH: verify key permissions (chmod 600), check host key acceptance";
+    successIndicator = "ssh connection successful";
   } else if (errorLower.includes("rsync")) {
-    return {
-      id: generateLessonId(),
-      tool,
-      workspacePattern: failure.workspace.includes("/") ? failure.workspace.split("/").slice(-2).join("/") : "*",
-      errorSemantic: error.substring(0, 200),
-      constraint: "For rsync: use --delete carefully, check source/target paths",
-      successIndicator: "rsync completed without errors",
-      confidence: 0.5,
-      triggerCount: 1,
-      createdAt: new Date().toISOString(),
-      lastRetrieved: new Date().toISOString()
-    };
+    constraint = "For rsync: use --delete carefully, check source/target paths";
+    successIndicator = "rsync completed without errors";
   }
 
   return {
@@ -458,12 +183,11 @@ function createLessonFromFailure(failure: FailureEvent): Lesson {
     tool,
     workspacePattern: failure.workspace.includes("/") ? failure.workspace.split("/").slice(-2).join("/") : "*",
     errorSemantic: error.substring(0, 200),
-    constraint: "Analyze error message and adjust approach",
-    successIndicator: "operation completed successfully",
+    constraint,
+    successIndicator,
     confidence: 0.5,
     triggerCount: 1,
-    createdAt: new Date().toISOString(),
-    lastRetrieved: new Date().toISOString()
+    createdAt: new Date().toISOString()
   };
 }
 
@@ -479,11 +203,6 @@ function storeUnresolvedError(failure: FailureEvent, embedding: number[]) {
   if (existing) {
     existing.occurrences++;
     existing.lastSeen = new Date().toISOString();
-
-    if (existing.occurrences >= UNRESOLVED_THRESHOLD) {
-      console.log(`[openlearn] ⚠️ UNRESOLVED ERROR (${existing.occurrences}x): "${existing.errorText.substring(0, 100)}"`);
-      console.log(`[openlearn] Consider adding a lesson or fixing the root cause.`);
-    }
   } else {
     unresolved.push({
       id: `unres_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
@@ -569,7 +288,7 @@ function learnWorkspaceConventions(tool: string, args: Record<string, unknown>, 
   saveConventions(conventions);
 
   try {
-    const coll = initConventionsZvec();
+    const coll = conventionsCollection;
     if (coll && conventions.length > 0) {
       const lastConv = conventions[conventions.length - 1];
       const embedding = textToEmbedding(`${lastConv.workspacePattern} ${lastConv.conventionType} ${lastConv.value}`);
@@ -579,15 +298,448 @@ function learnWorkspaceConventions(tool: string, args: Record<string, unknown>, 
   }
 }
 
+function applyConfidenceDecay(lesson: Lesson, config: Config): Lesson {
+  if (!config.confidenceDecay || !lesson.lastAccessed) {
+    return lesson;
+  }
+
+  const lastAccess = new Date(lesson.lastAccessed).getTime();
+  const now = Date.now();
+  const daysSince = (now - lastAccess) / (1000 * 60 * 60 * 24);
+  const halfLifeFactor = Math.pow(0.5, daysSince / config.halfLifeDays);
+
+  lesson.confidence = lesson.confidence * halfLifeFactor;
+
+  if (lesson.confidence < 0.1) {
+    return null as any;
+  }
+
+  return lesson;
+}
+
+function parseCommand(input: string): { command: string; args: string[] } | null {
+  const match = input.match(/^openlearn:\s*(.+)?$/i);
+  if (!match) return null;
+
+  const rest = match[1] || "";
+  const parts = rest.split(/\s+/).filter(Boolean);
+  const command = parts[0]?.toLowerCase() || "help";
+  const args = parts.slice(1);
+
+  return { command, args };
+}
+
+function formatLessonForDisplay(lesson: Lesson | PendingLesson, index?: number): string {
+  const conf = lesson.confidence >= 0.7 ? "🟢" : lesson.confidence >= 0.4 ? "🟡" : "🔴";
+  const idx = index !== undefined ? `[${index}] ` : "";
+  return `${idx}${conf} ${lesson.tool} • "${lesson.errorSemantic.substring(0, 50)}..." → "${lesson.constraint}"`;
+}
+
+function cmdHelp(): ChatResponse {
+  return {
+    type: "text",
+    text: `**openlearn commands:**
+
+\`openlearn: help\` - Show this help
+\`openlearn: list\` - Summary of learnings
+\`openlearn: list --all\` - Full paginated list
+\`openlearn: list --pending\` - Pending review
+\`openlearn: list <tool>\` - Filter by tool
+
+\`openlearn: review\` - Interactive pending review
+\`openlearn: approve <id>\` - Approve specific lesson
+\`openlearn: reject <id>\` - Reject specific lesson
+
+\`openlearn: history <id>\` - Show version history
+\`openlearn: rollback <id>\` - Interactively rollback
+
+\`openlearn: export\` - Print JSON backup
+\`openlearn: import <json>\` - Import from JSON
+
+\`openlearn: config\` - Show current config
+\`openlearn: config set <key> <val>\` - Set config
+
+\`openlearn: clear\` - Clear all learnings
+\`openlearn: clear --lessons\` - Clear only lessons
+\`openlearn: clear --pending\` - Clear only pending
+
+**Learning Modes:** \`full\` (auto-learn) | \`suggest\` (require approval) | \`off\` (disabled)`
+  };
+}
+
+function cmdList(args: string[], config: Config): ChatResponse {
+  const allLessons = loadAllLessons();
+  const pending = loadPending();
+  const lessons = allLessons.filter(l => l.status === "active");
+  const sequences = loadSequences();
+  const conventions = loadConventions();
+
+  if (args.includes("--pending")) {
+    if (pending.length === 0) {
+      return { type: "text", text: "✅ No pending lessons. You're all caught up!" };
+    }
+
+    let output = `**📋 Pending Review** (${pending.length} lesson${pending.length > 1 ? "s" : ""})\n\n`;
+    pending.forEach((p, i) => {
+      output += `${formatLessonForDisplay(p, i + 1)}\n`;
+      output += `   Confidence: ${(p.confidence * 100).toFixed(0)}% • ${p.triggerCount} trigger${p.triggerCount > 1 ? "s" : ""}\n`;
+      output += `   Workspace: ${p.workspacePattern}\n\n`;
+    });
+    output += "Run `openlearn: review` to interactively approve/reject.";
+
+    return { type: "text", text: output };
+  }
+
+  if (args.includes("--all")) {
+    if (lessons.length === 0) {
+      return { type: "text", text: "📚 No active lessons yet. Start using OpenCode to learn!" };
+    }
+
+    let output = `**📚 All Lessons** (${lessons.length} total)\n\n`;
+    lessons.forEach((l, i) => {
+      output += `${formatLessonForDisplay(l, i + 1)}\n`;
+    });
+
+    return { type: "text", text: output };
+  }
+
+  const toolFilter = args.find(a => !a.startsWith("--"));
+  let filtered = lessons;
+  if (toolFilter) {
+    filtered = lessons.filter(l => l.tool.toLowerCase().includes(toolFilter.toLowerCase()));
+    if (filtered.length === 0) {
+      return { type: "error", text: `No lessons found for tool "${toolFilter}".` };
+    }
+  }
+
+  const high = filtered.filter(l => l.confidence >= 0.7).length;
+  const medium = filtered.filter(l => l.confidence >= 0.4 && l.confidence < 0.7).length;
+  const low = filtered.filter(l => l.confidence < 0.4).length;
+
+  const modeIcon = config.learningMode === "full" ? "📖" : config.learningMode === "suggest" ? "⏳" : "🚫";
+  const modeText = config.learningMode === "full" ? "Learning + auto-inject"
+    : config.learningMode === "suggest" ? "Learning + suggest (pending approval)"
+    : "Learning disabled";
+
+  let output = `**📚 openlearn Status**\n`;
+  output += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+  output += `Mode: ${modeIcon} ${modeText}\n`;
+  output += `Auto-inject threshold: ${(config.autoInjectThreshold * 100).toFixed(0)}%\n`;
+  output += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+  output += `Lessons: ${filtered.length} ${toolFilter ? `(filtered: ${toolFilter})` : ""}\n`;
+  output += `  🟢 High: ${high} | 🟡 Medium: ${medium} | 🔴 Low: ${low}\n`;
+  output += `⏳ Pending: ${pending.length}\n`;
+  output += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+  output += `Sequences: ${sequences.length} | Conventions: ${conventions.length}\n`;
+  output += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+  output += `Run \`openlearn: list --all\` for full list\n`;
+  output += `Run \`openlearn: list --pending\` for pending review`;
+
+  return { type: "text", text: output };
+}
+
+function cmdReview(pending: PendingLesson[]): ChatResponse {
+  if (pending.length === 0) {
+    return { type: "text", text: "✅ No pending lessons to review. You're all caught up!" };
+  }
+
+  const first = pending[0];
+  const output = `**📋 Pending Review (${pending.length} total)**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+**Lesson:** ${first.id}
+**Tool:** ${first.tool}
+**Workspace:** ${first.workspacePattern}
+**Error:** "${first.errorSemantic.substring(0, 100)}..."
+**Constraint:** "${first.constraint}"
+**Confidence:** ${(first.confidence * 100).toFixed(0)}%
+**Triggers:** ${first.triggerCount}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Approve? \`y\` = approve, \`n\` = reject, \`s\` = skip, \`q\` = quit`;
+
+  return { type: "text", text: output };
+}
+
+function cmdApprove(lessonId: string, pending: PendingLesson[]): ChatResponse {
+  const idx = pending.findIndex(p => p.id === lessonId || p.id.includes(lessonId));
+  if (idx === -1) {
+    return { type: "error", text: `Pending lesson "${lessonId}" not found. Run \`openlearn: list --pending\` to see pending lessons.` };
+  }
+
+  const toApprove = pending[idx];
+  const allLessons = loadAllLessons();
+
+  const lesson: Lesson = {
+    ...toApprove,
+    status: "active",
+    lastRetrieved: new Date().toISOString(),
+    lastAccessed: new Date().toISOString()
+  };
+
+  allLessons.push(lesson);
+  saveLessons(allLessons);
+
+  pending.splice(idx, 1);
+  savePending(pending);
+
+  addHistoryEntry(lesson.id, {
+    constraint: lesson.constraint,
+    confidence: lesson.confidence,
+    changedAt: new Date().toISOString(),
+    action: "approved"
+  });
+
+  addAuditEntry("approved", lesson.id, `Approved pending lesson for "${lesson.tool}"`);
+
+  const coll = lessonsCollection;
+  if (coll) {
+    const embedding = textToEmbedding(`${lesson.tool} ${lesson.errorSemantic}`);
+    coll.insertSync([{ id: `doc_${lesson.id}`, vectors: { embedding } }]);
+  }
+
+  return { type: "text", text: `✅ Lesson approved and activated!\nRun \`openlearn: list\` to see your updated lessons.` };
+}
+
+function cmdReject(lessonId: string, pending: PendingLesson[]): ChatResponse {
+  const idx = pending.findIndex(p => p.id === lessonId || p.id.includes(lessonId));
+  if (idx === -1) {
+    return { type: "error", text: `Pending lesson "${lessonId}" not found.` };
+  }
+
+  const rejected = pending.splice(idx, 1)[0];
+  savePending(pending);
+
+  addAuditEntry("rejected", rejected.id, `Rejected pending lesson for "${rejected.tool}"`);
+
+  return { type: "text", text: `❌ Lesson rejected and deleted.\nRun \`openlearn: list --pending\` to see remaining pending lessons.` };
+}
+
+function cmdHistory(lessonId: string): ChatResponse {
+  const allLessons = loadAllLessons();
+  const lesson = allLessons.find(l => l.id === lessonId || l.id.includes(lessonId));
+
+  if (!lesson) {
+    return { type: "error", text: `Lesson "${lessonId}" not found.` };
+  }
+
+  const history = loadHistory();
+  const entries = history[lesson.id] || [];
+
+  if (entries.length === 0) {
+    return { type: "text", text: `No history available for lesson "${lessonId}".` };
+  }
+
+  let output = `**📜 History for ${lesson.id}**\n\n`;
+  entries.forEach(e => {
+    const actionIcon = e.action === "rolled_back" ? "↩️" : e.action === "approved" ? "✅" : "📝";
+    output += `${actionIcon} v${e.version}: ${e.constraint}\n`;
+    output += `   Confidence: ${(e.confidence * 100).toFixed(0)}% | ${e.changedAt}\n\n`;
+  });
+
+  return { type: "text", text: output };
+}
+
+function cmdRollback(lessonId: string, allLessons: Lesson[], history: LessonHistory): ChatResponse {
+  const lesson = allLessons.find(l => l.id === lessonId || l.id.includes(lessonId));
+  if (!lesson) {
+    return { type: "error", text: `Lesson "${lessonId}" not found.` };
+  }
+
+  const entries = history[lesson.id] || [];
+  if (entries.length <= 1) {
+    return { type: "error", text: `No previous version to rollback to for lesson "${lessonId}".` };
+  }
+
+  const previous = entries[entries.length - 2];
+  lesson.constraint = previous.constraint;
+  lesson.confidence = previous.confidence;
+  lesson.lastAccessed = new Date().toISOString();
+
+  saveLessons(allLessons);
+
+  addHistoryEntry(lesson.id, {
+    constraint: lesson.constraint,
+    confidence: lesson.confidence,
+    changedAt: new Date().toISOString(),
+    action: "rolled_back"
+  });
+
+  addAuditEntry("rolled_back", lesson.id, `Rolled back to v${previous.version}`);
+
+  return { type: "text", text: `↩️ Rolled back lesson "${lesson.id}" to v${previous.version}.\nNew constraint: "${lesson.constraint}"` };
+}
+
+function cmdExport(): ChatResponse {
+  const lessons = loadAllLessons().filter(l => l.status === "active");
+  const pending = loadPending();
+  const config = loadConfig();
+  const exportData = { lessons, pending, config, exportedAt: new Date().toISOString() };
+
+  return { type: "text", text: `**📤 Export Data**\n\n\`\`\`json\n${JSON.stringify(exportData, null, 2)}\n\`\`\`\n\nCopy the JSON above to import elsewhere.` };
+}
+
+function cmdImport(jsonStr: string): ChatResponse {
+  try {
+    const data = JSON.parse(jsonStr);
+
+    if (data.lessons && Array.isArray(data.lessons)) {
+      const allLessons = loadAllLessons();
+      data.lessons.forEach((l: Lesson) => {
+        l.status = "active";
+        const existing = allLessons.findIndex(ex => ex.id === l.id);
+        if (existing >= 0) {
+          allLessons[existing] = l;
+        } else {
+          allLessons.push(l);
+        }
+        addHistoryEntry(l.id, {
+          constraint: l.constraint,
+          confidence: l.confidence,
+          changedAt: new Date().toISOString(),
+          action: "imported"
+        });
+      });
+      saveLessons(allLessons);
+    }
+
+    if (data.pending && Array.isArray(data.pending)) {
+      savePending(data.pending);
+    }
+
+    addAuditEntry("imported", undefined, "Imported lessons from backup");
+
+    return { type: "text", text: `✅ Import successful!\nRun \`openlearn: list\` to see your lessons.` };
+  } catch {
+    return { type: "error", text: "Invalid JSON format. Please provide valid JSON from `openlearn: export`." };
+  }
+}
+
+function cmdConfig(args: string[]): ChatResponse {
+  const config = loadConfig();
+
+  if (args[0] === "set" && args[1] && args[2]) {
+    const key = args[1] as keyof Config;
+    const value = args[2];
+
+    if (key === "learningMode") {
+      if (!["full", "suggest", "off"].includes(value)) {
+        return { type: "error", text: "learningMode must be: full, suggest, or off" };
+      }
+      config.learningMode = value as LearningMode;
+    } else if (key === "autoInjectThreshold") {
+      const num = parseFloat(value);
+      if (isNaN(num) || num < 0 || num > 1) {
+        return { type: "error", text: "autoInjectThreshold must be between 0 and 1" };
+      }
+      config.autoInjectThreshold = num;
+    } else if (key === "confidenceDecay") {
+      config.confidenceDecay = value === "true";
+    } else if (key === "showSequences") {
+      config.showSequences = value === "true";
+    } else if (key === "showConventions") {
+      config.showConventions = value === "true";
+    } else {
+      return { type: "error", text: `Unknown config key "${key}". Run \`openlearn: config\` to see all keys.` };
+    }
+
+    saveConfig(config);
+    return { type: "text", text: `✅ Config updated: ${key} = ${value}` };
+  }
+
+  if (args.includes("--list")) {
+    return {
+      type: "text",
+      text: `**⚙️ Config Options**
+
+\`learningMode\` - full | suggest | off
+\`autoInjectThreshold\` - 0.0 to 1.0 (default: 0.7)
+\`confidenceDecay\` - true | false (default: true)
+\`showSequences\` - true | false (default: true)
+\`showConventions\` - true | false (default: true)
+
+Example: \`openlearn: config set learningMode suggest\``
+    };
+  }
+
+  const modeText = config.learningMode === "full" ? "Learning + auto-inject"
+    : config.learningMode === "suggest" ? "Learning + suggest (pending approval)"
+    : "Learning disabled";
+
+  return {
+    type: "text",
+    text: `**⚙️ Current Config**
+
+\`\`\`
+learningMode: ${modeText}
+autoInjectThreshold: ${(config.autoInjectThreshold * 100).toFixed(0)}%
+confidenceDecay: ${config.confidenceDecay}
+showSequences: ${config.showSequences}
+showConventions: ${config.showConventions}
+\`\`\`
+
+Run \`openlearn: config --list\` for all options.`
+  };
+}
+
+function cmdClear(args: string[]): ChatResponse {
+  if (args.includes("--lessons")) {
+    const allLessons = loadAllLessons().filter(l => l.status === "pending");
+    saveLessons(allLessons);
+    addAuditEntry("cleared", undefined, "Cleared all active lessons");
+    return { type: "text", text: "🗑️ All active lessons cleared. Pending lessons preserved." };
+  }
+
+  if (args.includes("--pending")) {
+    savePending([]);
+    addAuditEntry("cleared", undefined, "Cleared all pending lessons");
+    return { type: "text", text: "🗑️ All pending lessons cleared." };
+  }
+
+  saveLessons([]);
+  savePending([]);
+  saveSequences([]);
+  saveConventions([]);
+  saveUnresolved([]);
+  saveHistory({});
+  saveAudit([]);
+
+  try {
+    const fs = require('fs');
+    if (fs.existsSync(ZVEC_PATH)) fs.rmSync(ZVEC_PATH);
+    if (fs.existsSync(SEQ_ZVEC_PATH)) fs.rmSync(SEQ_ZVEC_PATH);
+    if (fs.existsSync(CONV_ZVEC_PATH)) fs.rmSync(CONV_ZVEC_PATH);
+  } catch {
+  }
+
+  lessonsCollection = null;
+  sequencesCollection = null;
+  conventionsCollection = null;
+
+  addAuditEntry("cleared", undefined, "Cleared all data");
+
+  return { type: "text", text: "🗑️ **All learnings cleared.** Type \`openlearn: list\` to start fresh." };
+}
+
 export const OpenLearnPlugin: Plugin = async (ctx) => {
   let currentWorkspace = "/";
   let currentTool = "";
   let pendingFailure: FailureEvent | null = null;
   let toolSequence: SequenceStep[] = [];
   let toolSequenceTimer: ReturnType<typeof setTimeout> | null = null;
+  let pendingReviewIndex = 0;
+
+  initZVecCollections();
+  const config = loadConfig();
 
   const flushSequence = () => {
     if (toolSequence.length < 2) {
+      toolSequence = [];
+      return;
+    }
+
+    if (!config.showSequences) {
       toolSequence = [];
       return;
     }
@@ -618,16 +770,12 @@ export const OpenLearnPlugin: Plugin = async (ctx) => {
       });
 
       try {
-        const coll = initSequencesZvec();
+        const coll = sequencesCollection;
         if (coll) {
           const embedding = textToEmbedding(`${workspaceKey} ${sequenceKey}`);
           coll.insertSync([{ id: `doc_${sequences[sequences.length - 1].id}`, vectors: { embedding } }]);
         }
       } catch {
-      }
-
-      if (successRate > 0.7) {
-        console.log(`[openlearn] 📝 Learned sequence: "${sequenceKey}" (${(successRate * 100).toFixed(0)}% success in ${workspaceKey})`);
       }
     }
 
@@ -662,9 +810,9 @@ export const OpenLearnPlugin: Plugin = async (ctx) => {
 
     if (!failure) {
       if (pendingFailure) {
-        const lessons = loadLessons();
-        const existing = lessons.find(
-          l => l.errorSemantic === sanitizeError(pendingFailure.error).substring(0, 200)
+        const allLessons = loadAllLessons();
+        const existing = allLessons.find(
+          l => l.status === "active" && l.errorSemantic === sanitizeError(pendingFailure.error).substring(0, 200)
         );
 
         if (existing) {
@@ -672,12 +820,12 @@ export const OpenLearnPlugin: Plugin = async (ctx) => {
           existing.confidence = Math.min(0.95, existing.confidence + 0.05);
           existing.lastAccessed = new Date().toISOString();
           if (existing.unresolvedCount && existing.unresolvedCount > 0) {
-            console.log(`[openlearn] ✅ Lesson resolved after ${existing.unresolvedCount} failures: "${existing.constraint}"`);
             existing.unresolvedCount = 0;
           }
+          saveLessons(allLessons);
+          addAuditEntry("used", existing.id, `Reinforced after success`);
         }
 
-        saveLessons(lessons);
         pendingFailure = null;
       }
       return;
@@ -696,11 +844,12 @@ export const OpenLearnPlugin: Plugin = async (ctx) => {
       timestamp: new Date().toISOString()
     };
 
-    const lessons = loadLessons();
+    const allLessons = loadAllLessons();
     const errorEmbedding = textToEmbedding(`${toolName} ${sanitizedError}`);
 
-    const existingLesson = lessons.find(
-      l => l.errorSemantic.substring(0, 200) === sanitizedError.substring(0, 200) &&
+    const existingLesson = allLessons.find(
+      l => l.status === "active" &&
+           l.errorSemantic.substring(0, 200) === sanitizedError.substring(0, 200) &&
            (l.workspacePattern === "*" || currentWorkspace.includes(l.workspacePattern))
     );
 
@@ -709,33 +858,65 @@ export const OpenLearnPlugin: Plugin = async (ctx) => {
       existingLesson.confidence = Math.min(0.95, existingLesson.confidence + 0.1);
       existingLesson.lastAccessed = new Date().toISOString();
       existingLesson.unresolvedCount = 0;
-      saveLessons(lessons);
+      saveLessons(allLessons);
       pendingFailure = null;
       return;
     }
 
-    const newLesson = createLessonFromFailure(currentFailure);
-
-    if (newLesson.constraint === "Analyze error message and adjust approach") {
-      storeUnresolvedError(currentFailure, errorEmbedding);
-      newLesson.unresolvedCount = 1;
+    if (config.learningMode === "off") {
+      return;
     }
 
-    lessons.push(newLesson);
-    saveLessons(lessons);
+    const newPending = createLessonFromFailure(currentFailure);
+
+    if (newPending.constraint === "Analyze error message and adjust approach") {
+      storeUnresolvedError(currentFailure, errorEmbedding);
+    }
+
+    if (config.learningMode === "suggest") {
+      const pending = loadPending();
+      const duplicate = pending.find(p =>
+        p.errorSemantic.substring(0, 200) === sanitizedError.substring(0, 200) &&
+        p.tool === toolName
+      );
+
+      if (!duplicate) {
+        pending.push(newPending);
+        savePending(pending);
+        addAuditEntry("created", newPending.id, `New pending lesson for "${toolName}"`);
+      }
+      pendingFailure = currentFailure;
+      return;
+    }
+
+    const lesson: Lesson = {
+      ...newPending,
+      status: "active",
+      lastRetrieved: new Date().toISOString(),
+      lastAccessed: new Date().toISOString()
+    };
+
+    allLessons.push(lesson);
+    saveLessons(allLessons);
+
+    addHistoryEntry(lesson.id, {
+      constraint: lesson.constraint,
+      confidence: lesson.confidence,
+      changedAt: new Date().toISOString(),
+      action: "created"
+    });
+
+    addAuditEntry("created", lesson.id, `New lesson for "${toolName}"`);
 
     try {
-      const coll = initLessonsZvec();
+      const coll = lessonsCollection;
       if (coll) {
-        coll.insertSync([{ id: `doc_${newLesson.id}`, vectors: { embedding: errorEmbedding } }]);
-        newLesson.vectorId = 1;
+        coll.insertSync([{ id: `doc_${lesson.id}`, vectors: { embedding: errorEmbedding } }]);
       }
-    } catch (e) {
-      console.log(`[openlearn] ZVec not available: ${e}`);
+    } catch {
     }
 
-    console.log(`[openlearn] 📚 New lesson stored: ${newLesson.id} - "${newLesson.constraint}"`);
-    pendingFailure = null;
+    pendingFailure = currentFailure;
   };
 
   const chatMessageHook = async (
@@ -746,102 +927,158 @@ export const OpenLearnPlugin: Plugin = async (ctx) => {
       currentWorkspace = extractWorkspace(input.cwd);
     }
 
-    if (!currentTool) return;
+    const firstTextPart = output.parts.find(p => p.type === "text");
+    if (!firstTextPart?.text) return;
 
-    const lessons = loadLessons();
-    const sequences = loadSequences();
-    const conventions = loadConventions();
+    const parsed = parseCommand(firstTextPart.text);
+    if (!parsed) {
+      if (!currentTool) return;
 
-    let relevantLessons: Lesson[] = [];
-    let relevantSequences: ToolSequence[] = [];
-    let relevantConventions: WorkspaceConvention[] = [];
+      const lessons = loadAllLessons().filter(l => l.status === "active");
+      const sequences = loadSequences();
+      const conventions = loadConventions();
+      const cfg = loadConfig();
 
-    const coll = initLessonsZvec();
-    const seqColl = initSequencesZvec();
-    const convColl = initConventionsZvec();
+      let relevantLessons: Lesson[] = [];
+      let relevantSequences: ToolSequence[] = [];
+      let relevantConventions: WorkspaceConvention[] = [];
 
-    try {
-      if (coll) {
-        const queryEmbedding = textToEmbedding(`${currentTool} ${currentWorkspace}`);
-        const results = coll.querySync({ fieldName: "embedding", vector: queryEmbedding, topk: 3 });
-        if (results && results.length > 0) {
-          const matchedIds = results.map((r: ZVecDoc) => r.id.replace("doc_lesson_", "lesson_") || "");
-          relevantLessons = lessons.filter(l => matchedIds.includes(l.id));
+      const coll = lessonsCollection;
+      const seqColl = sequencesCollection;
+      const convColl = conventionsCollection;
+
+      try {
+        if (coll) {
+          const queryEmbedding = textToEmbedding(`${currentTool} ${currentWorkspace}`);
+          const results = coll.querySync({ fieldName: "embedding", vector: queryEmbedding, topk: 3 });
+          if (results && results.length > 0) {
+            const matchedIds = results.map((r: ZVecDoc) => r.id.replace("doc_lesson_", "lesson_") || "");
+            relevantLessons = lessons.filter(l => matchedIds.includes(l.id) && l.confidence >= cfg.autoInjectThreshold);
+          }
         }
+      } catch {
+        relevantLessons = lessons
+          .filter(l => {
+            const toolMatch = l.tool === currentTool || l.tool === "*";
+            const workspaceMatch = l.workspacePattern === "*" || currentWorkspace.includes(l.workspacePattern);
+            return toolMatch && workspaceMatch && l.confidence >= cfg.autoInjectThreshold;
+          })
+          .sort((a, b) => (b.confidence * b.triggerCount) - (a.confidence * a.triggerCount))
+          .slice(0, 3);
       }
-    } catch {
-      relevantLessons = lessons
-        .filter(l => {
-          const toolMatch = l.tool === currentTool || l.tool === "*";
-          const workspaceMatch = l.workspacePattern === "*" || currentWorkspace.includes(l.workspacePattern);
-          return toolMatch && workspaceMatch;
-        })
-        .sort((a, b) => (b.confidence * b.triggerCount) - (a.confidence * a.triggerCount))
-        .slice(0, 3);
-    }
 
-    try {
-      if (seqColl) {
+      try {
+        if (seqColl && cfg.showSequences) {
+          const workspaceKey = currentWorkspace.includes("/") ? currentWorkspace.split("/").slice(-2).join("/") : "*";
+          const seqQueryEmbedding = textToEmbedding(`${workspaceKey} ${currentTool}`);
+          const seqResults = seqColl.querySync({ fieldName: "embedding", vector: seqQueryEmbedding, topk: 2 });
+          if (seqResults && seqResults.length > 0) {
+            const matchedIds = seqResults.map((r: ZVecDoc) => r.id.replace("doc_seq_", "seq_") || "");
+            relevantSequences = sequences.filter(s => matchedIds.includes(s.id));
+          }
+        }
+      } catch {
+        relevantSequences = sequences
+          .filter(s => s.tools[0] === currentTool && s.successRate > 0.6)
+          .sort((a, b) => b.successRate - a.successRate)
+          .slice(0, 2);
+      }
+
+      try {
+        if (convColl && cfg.showConventions) {
+          const workspaceKey = currentWorkspace.includes("/") ? currentWorkspace.split("/").slice(-2).join("/") : "*";
+          const convQueryEmbedding = textToEmbedding(`${workspaceKey}`);
+          const convResults = convColl.querySync({ fieldName: "embedding", vector: convQueryEmbedding, topk: 5 });
+          if (convResults && convResults.length > 0) {
+            const matchedIds = convResults.map((r: ZVecDoc) => r.id.replace("doc_conv_", "conv_") || "");
+            relevantConventions = conventions.filter(c => matchedIds.includes(c.id));
+          }
+        }
+      } catch {
         const workspaceKey = currentWorkspace.includes("/") ? currentWorkspace.split("/").slice(-2).join("/") : "*";
-        const seqQueryEmbedding = textToEmbedding(`${workspaceKey} ${currentTool}`);
-        const seqResults = seqColl.querySync({ fieldName: "embedding", vector: seqQueryEmbedding, topk: 2 });
-        if (seqResults && seqResults.length > 0) {
-          const matchedIds = seqResults.map((r: ZVecDoc) => r.id.replace("doc_seq_", "seq_") || "");
-          relevantSequences = sequences.filter(s => matchedIds.includes(s.id));
-        }
+        relevantConventions = conventions.filter(c => c.workspacePattern === workspaceKey);
       }
-    } catch {
-      relevantSequences = sequences
-        .filter(s => s.tools[0] === currentTool && s.successRate > 0.6)
-        .sort((a, b) => b.successRate - a.successRate)
-        .slice(0, 2);
-    }
 
-    try {
-      if (convColl) {
-        const workspaceKey = currentWorkspace.includes("/") ? currentWorkspace.split("/").slice(-2).join("/") : "*";
-        const convQueryEmbedding = textToEmbedding(`${workspaceKey}`);
-        const convResults = convColl.querySync({ fieldName: "embedding", vector: convQueryEmbedding, topk: 5 });
-        if (convResults && convResults.length > 0) {
-          const matchedIds = convResults.map((r: ZVecDoc) => r.id.replace("doc_conv_", "conv_") || "");
-          relevantConventions = conventions.filter(c => matchedIds.includes(c.id));
-        }
+      const contextParts: string[] = [];
+
+      if (relevantLessons.length > 0) {
+        const constraints = relevantLessons
+          .map((l, i) => `Lesson ${i + 1}: ${l.constraint}`)
+          .join("\n");
+        contextParts.push(`[LEARNED CONSTRAINTS]\n${constraints}`);
       }
-    } catch {
-      const workspaceKey = currentWorkspace.includes("/") ? currentWorkspace.split("/").slice(-2).join("/") : "*";
-      relevantConventions = conventions.filter(c => c.workspacePattern === workspaceKey);
-    }
 
-    const contextParts: string[] = [];
+      if (relevantSequences.length > 0) {
+        const seqs = relevantSequences
+          .map(s => `"${s.tools.join(" → ")}" (${(s.successRate * 100).toFixed(0)}% success)`)
+          .join(", ");
+        contextParts.push(`[KNOWN SEQUENCES] ${seqs}`);
+      }
 
-    if (relevantLessons.length > 0) {
-      const constraints = relevantLessons
-        .map((l, i) => `Lesson ${i + 1}: ${l.constraint}`)
-        .join("\n");
-      contextParts.push(`[LEARNED CONSTRAINTS]\n${constraints}`);
-    }
+      if (relevantConventions.length > 0) {
+        const convs = relevantConventions
+          .filter(c => c.confidence > 0.5)
+          .map(c => `${c.conventionType}: ${c.value}`)
+          .join("; ");
+        if (convs) contextParts.push(`[WORKSPACE CONVENTIONS] ${convs}`);
+      }
 
-    if (relevantSequences.length > 0) {
-      const seqs = relevantSequences
-        .map(s => `"${s.tools.join(" → ")}" (${(s.successRate * 100).toFixed(0)}% success)`)
-        .join(", ");
-      contextParts.push(`[KNOWN SEQUENCES] ${seqs}`);
-    }
-
-    if (relevantConventions.length > 0) {
-      const convs = relevantConventions
-        .filter(c => c.confidence > 0.5)
-        .map(c => `${c.conventionType}: ${c.value}`)
-        .join("; ");
-      if (convs) contextParts.push(`[WORKSPACE CONVENTIONS] ${convs}`);
-    }
-
-    if (contextParts.length > 0) {
-      const contextBlock = `\n\n${contextParts.join("\n")}\n\n`;
-      const firstTextPart = output.parts.find(p => p.type === "text");
-      if (firstTextPart?.text) {
+      if (contextParts.length > 0) {
+        const contextBlock = `\n\n${contextParts.join("\n")}\n\n`;
         firstTextPart.text = contextBlock + firstTextPart.text;
       }
+      return;
+    }
+
+    const { command, args } = parsed;
+    const currentConfig = loadConfig();
+    const pending = loadPending();
+    const allLessons = loadAllLessons();
+    const history = loadHistory();
+
+    let response: ChatResponse = { type: "text", text: "Unknown command. Run `openlearn: help`." };
+
+    switch (command) {
+      case "help":
+        response = cmdHelp();
+        break;
+      case "list":
+        response = cmdList(args, currentConfig);
+        break;
+      case "review":
+        response = cmdReview(pending);
+        break;
+      case "approve":
+        response = cmdApprove(args[0] || "", pending);
+        break;
+      case "reject":
+        response = cmdReject(args[0] || "", pending);
+        break;
+      case "history":
+        response = cmdHistory(args[0] || "");
+        break;
+      case "rollback":
+        response = cmdRollback(args[0] || "", allLessons, history);
+        break;
+      case "export":
+        response = cmdExport();
+        break;
+      case "import":
+        response = cmdImport(firstTextPart.text.replace(/^openlearn:\s*import\s*/i, ""));
+        break;
+      case "config":
+        response = cmdConfig(args);
+        break;
+      case "clear":
+        response = cmdClear(args);
+        break;
+      default:
+        response = { type: "text", text: `Unknown command "${command}". Run \`openlearn: help\` for available commands.` };
+    }
+
+    const idx = output.parts.findIndex(p => p.type === "text");
+    if (idx >= 0) {
+      output.parts[idx].text = response.text;
     }
   };
 
@@ -849,7 +1086,7 @@ export const OpenLearnPlugin: Plugin = async (ctx) => {
     input: { sessionID: string; agent?: string },
     output: { temperature?: number; topP?: number; topK?: number; options: Record<string, unknown> }
   ) => {
-    const lessons = loadLessons();
+    const lessons = loadAllLessons().filter(l => l.status === "active");
     const highConfidenceCount = lessons.filter(l => l.confidence > 0.7).length;
     const unresolved = loadUnresolved().filter(u => u.occurrences >= UNRESOLVED_THRESHOLD);
 
@@ -872,14 +1109,15 @@ export const OpenLearnPlugin: Plugin = async (ctx) => {
       currentWorkspace = extractWorkspace(input.args.cwd as string);
     }
 
-    const lessons = loadLessons();
+    const lessons = loadAllLessons().filter(l => l.status === "active");
     const sequences = loadSequences();
+    const cfg = loadConfig();
 
     let relevantLessons: Lesson[] = [];
     let relevantSequences: ToolSequence[] = [];
 
-    const coll = initLessonsZvec();
-    const seqColl = initSequencesZvec();
+    const coll = lessonsCollection;
+    const seqColl = sequencesCollection;
 
     try {
       if (coll) {
@@ -901,7 +1139,7 @@ export const OpenLearnPlugin: Plugin = async (ctx) => {
     }
 
     try {
-      if (seqColl) {
+      if (seqColl && cfg.showSequences) {
         const workspaceKey = currentWorkspace.includes("/") ? currentWorkspace.split("/").slice(-2).join("/") : "*";
         const seqQueryEmbedding = textToEmbedding(`${workspaceKey} ${currentTool}`);
         const seqResults = seqColl.querySync({ fieldName: "embedding", vector: seqQueryEmbedding, topk: 1 });
@@ -919,21 +1157,21 @@ export const OpenLearnPlugin: Plugin = async (ctx) => {
 
     if (relevantSequences.length > 0) {
       const seq = relevantSequences[0];
-      console.log(`[openlearn] 🔗 Sequence detected: "${seq.tools.join(" → ")}" started`);
+      output.hint = `[openlearn] 🔗 Sequence detected: "${seq.tools.join(" → ")}" started`;
     }
 
     if (relevantLessons.length > 0) {
       const warnings = relevantLessons
-        .filter(l => l.confidence > 0.5)
-        .map((l, i) => `⚠️ ${l.constraint}`)
+        .filter(l => l.confidence >= cfg.autoInjectThreshold)
+        .map(l => `[LEARNED] ${l.constraint}`)
         .join("\n");
       if (warnings) {
-        console.log(`[openlearn] Tool ${currentTool}:\n${warnings}`);
+        output.hint = `[openlearn] ${currentTool}:\n${warnings}`;
       }
     }
   };
 
-  const eventHook = async (input: { event: { type: string; properties?: Record<string, unknown> } }) => {
+  const eventHook = async (input: { event: { type: string; properties?: Record<string, unknown> } }, output: Record<string, unknown>) => {
     const event = input.event;
     if (event.type === "session.created") {
       const props = event.properties as { cwd?: string } | undefined;
@@ -941,27 +1179,24 @@ export const OpenLearnPlugin: Plugin = async (ctx) => {
         currentWorkspace = extractWorkspace(props.cwd);
       }
       toolSequence = [];
-      console.log(`[openlearn] Session started in workspace: ${currentWorkspace}`);
+      const cfg = loadConfig();
+      const pending = loadPending();
+      const lessons = loadAllLessons().filter(l => l.status === "active");
 
-      const unresolved = loadUnresolved();
-      if (unresolved.length > 0) {
-        console.log(`[openlearn] 📊 ${unresolved.length} unresolved error(s) from previous sessions`);
+      if (cfg.learningMode !== "off" && pending.length > 0) {
+        output.hint = `[openlearn] 📚 ${pending.length} pending lesson(s) awaiting review. Run \`openlearn: review\` or \`openlearn: list --pending\``;
       }
-    }
-
-    if (event.type === "session.deleted") {
-      if (toolSequenceTimer) clearTimeout(toolSequenceTimer);
-      flushSequence();
     }
   };
 
   return {
-    "tool.execute.before": toolExecuteBeforeHook,
-    "tool.execute.after": toolExecuteAfterHook,
-    "chat.message": chatMessageHook,
-    "chat.params": chatParamsHook,
-    event: eventHook,
+    name: "openlearn",
+    hooks: {
+      toolExecuteAfterHook,
+      chatMessageHook,
+      chatParamsHook,
+      toolExecuteBeforeHook,
+      eventHook
+    }
   };
 };
-
-export default OpenLearnPlugin;
