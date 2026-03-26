@@ -121,7 +121,13 @@ Add to your OpenCode config (`~/.config/opencode/opencode.json`):
 {
   "plugins": [
     "@ossdeveloper/openlearn"
-  ]
+  ],
+  "mcp": {
+    "openlearn": {
+      "type": "local",
+      "command": ["openlearn-mcp"]
+    }
+  }
 }
 ```
 
@@ -196,10 +202,11 @@ A 1% improvement in not repeating mistakes compounds. Over 1000 tool executions,
 
 ## Status
 
-- Version 2.0.0
+- Version 2.0.2
 - Built for OpenCode
 - Vector similarity via @zvec/zvec
+- MCP server for direct tool access
 
-**New in v2.0:** Learning modes, approval workflow, rollback, audit log, and full command interface.
+**New in v2.0:** Learning modes, approval workflow, rollback, audit log, MCP server, and OpenCode slash commands auto-installed.
 
 MIT License. Use it. Break it. Improve it.
