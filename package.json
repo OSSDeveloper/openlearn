@@ -1,17 +1,24 @@
 {
   "name": "@ossdeveloper/openlearn",
-  "version": "1.0.0",
-  "description": "Self-correcting learning plugin for OpenCode - learns from tool failures and successes using vector similarity",
+  "version": "2.0.2",
+  "description": "Self-correcting memory layer for OpenCode - MCP server and plugin with learning modes, approval workflow, and rollback support",
   "main": "dist/plugin.js",
+  "bin": {
+    "openlearn-mcp": "dist/server.js"
+  },
   "type": "module",
   "files": [
     "dist"
   ],
   "scripts": {
     "build": "bun build src/plugin.ts --target=bun --outfile=dist/plugin.js --external @zvec/zvec --external @opencode-ai/plugin",
-    "prepublishOnly": "npm run build"
+    "build:server": "bun build src/server.ts --target=node --outfile=dist/server.js && node -e \"const fs=require('fs'); const c=fs.readFileSync('dist/server.js','utf8'); fs.writeFileSync('dist/server.js','#!/usr/bin/env node\\n'+c);\"",
+    "build:all": "bun run build && bun run build:server",
+    "prepublishOnly": "npm run build:all",
+    "postinstall": "node scripts/create-commands.js"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
     "@zvec/zvec": "^0.2.3"
   },
   "peerDependencies": {
@@ -20,6 +27,9 @@
   "keywords": [
     "opencode",
     "opencode-plugin",
+    "opencode-mcp",
+    "mcp",
+    "mcp-server",
     "learning",
     "ai",
     "agent"
@@ -33,5 +43,8 @@
   "bugs": {
     "url": "https://github.com/OSSDeveloper/openlearn/issues"
   },
-  "homepage": "https://github.com/OSSDeveloper/openlearn#readme"
+  "homepage": "https://github.com/OSSDeveloper/openlearn#readme",
+  "devDependencies": {
+    "@ossdeveloper/openlearn": "^2.0.0"
+  }
 }
