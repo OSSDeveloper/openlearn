@@ -1,6 +1,6 @@
 import path from "path";
 import fs from "fs";
-import { ZVecCollectionSchema, ZVecCreate and Open, ZVecDataType, ZVecDoc } from "@zvec/zvec";
+import { ZVecCollectionSchema, ZVecCreateAndOpen, ZVecDataType, ZVecDoc } from "@zvec/zvec";
 
 export const DATA_DIR = path.join(process.env.HOME || "/root", ".openlearn");
 export const DB_PATH = path.join(DATA_DIR, "lessons.json");
@@ -257,7 +257,7 @@ export function savePending(pending: PendingLesson[]) {
 }
 
 export function loadSequences(): ToolSequence[] {
-  const seqPath = DB_PATH.replace("lessons.json", "sequences.json");
+  const seqPath = path.join(DATA_DIR, "sequences.json");
   ensureDataDir();
   if (!fs.existsSync(seqPath)) {
     return [];
@@ -270,13 +270,13 @@ export function loadSequences(): ToolSequence[] {
 }
 
 export function saveSequences(sequences: ToolSequence[]) {
-  const seqPath = DB_PATH.replace("lessons.json", "sequences.json");
+  const seqPath = path.join(DATA_DIR, "sequences.json");
   ensureDataDir();
   fs.writeFileSync(seqPath, JSON.stringify(sequences, null, 2));
 }
 
 export function loadConventions(): WorkspaceConvention[] {
-  const convPath = DB_PATH.replace("lessons.json", "conventions.json");
+  const convPath = path.join(DATA_DIR, "conventions.json");
   ensureDataDir();
   if (!fs.existsSync(convPath)) {
     return [];
@@ -289,7 +289,7 @@ export function loadConventions(): WorkspaceConvention[] {
 }
 
 export function saveConventions(conventions: WorkspaceConvention[]) {
-  const convPath = DB_PATH.replace("lessons.json", "conventions.json");
+  const convPath = path.join(DATA_DIR, "conventions.json");
   ensureDataDir();
   fs.writeFileSync(convPath, JSON.stringify(conventions, null, 2));
 }
