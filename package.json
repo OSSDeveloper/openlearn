@@ -1,6 +1,6 @@
 {
   "name": "@ossdeveloper/openlearn",
-  "version": "2.0.5",
+  "version": "0.0.1",
   "description": "Self-correcting memory layer for OpenCode - MCP server and plugin with learning modes, approval workflow, and rollback support",
   "main": "dist/plugin.js",
   "bin": {
@@ -15,6 +15,7 @@
     "build": "bun build src/plugin.ts --target=bun --outfile=dist/plugin.js --external @zvec/zvec --external @opencode-ai/plugin",
     "build:server": "bun build src/server.ts --target=node --outfile=dist/server.js && node -e \"const fs=require('fs'); const c=fs.readFileSync('dist/server.js','utf8'); fs.writeFileSync('dist/server.js','#!/usr/bin/env node\\n'+c);\"",
     "build:all": "bun run build && bun run build:server",
+    "test": "bun test",
     "prepublishOnly": "npm run build:all",
     "postinstall": "node scripts/create-commands.js"
   },
@@ -44,8 +45,5 @@
   "bugs": {
     "url": "https://github.com/OSSDeveloper/openlearn/issues"
   },
-  "homepage": "https://github.com/OSSDeveloper/openlearn#readme",
-  "devDependencies": {
-    "@ossdeveloper/openlearn": "^2.0.0"
-  }
+  "homepage": "https://github.com/OSSDeveloper/openlearn#readme"
 }

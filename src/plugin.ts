@@ -52,8 +52,10 @@ import {
   generateConventionId,
   sanitizeError,
   extractWorkspace,
-  textToEmbedding
+  textToEmbedding,
+  buildLearnedContextBlock
 } from "./core.js";
+import { detectError } from "./error-detector.js";
 
 const SEQ_WINDOW = 5;
 const UNRESOLVED_THRESHOLD = 5;
@@ -105,37 +107,38 @@ function generateConstraintFromEmbedding(errorEmbedding: number[]): { constraint
   return { constraint: "Analyze error message and adjust approach", successIndicator: "operation completed successfully" };
 }
 
-function isFailure(output: unknown): boolean {
-  if (typeof output !== "object" || output === null) return false;
-  const o = output as Record<string, unknown>;
-
-  if (typeof o.output === "string") {
-    const lower = o.output.toLowerCase();
-    return lower.includes("error") ||
-           lower.includes("failed") ||
-           lower.includes("denied") ||
-           lower.includes("no such");
+function extractTextFromContent(content?: Array<{ type: string; text?: string }>): string | undefined {
+  if (!content || !Array.isArray(content)) return undefined;
+  const textParts: string[] = [];
+  for (const block of content) {
+    if (typeof block === "object" && block !== null && block.type === "text" && typeof block.text === "string") {
+      textParts.push(block.text);
+    }
   }
-
-  if (typeof o.result === "string") {
-    const lower = o.result.toLowerCase();
-    return lower.includes("error") ||
-           lower.includes("failed") ||
-           o.result.includes("SIGKILL") ||
-           o.result.includes("non-zero code");
-  }
-
-  if (o.metadata && typeof o.metadata === "object") {
-    const meta = o.metadata as Record<string, unknown>;
-    if (meta.error || meta.failed) return true;
-  }
-
-  return false;
+  return textParts.length > 0 ? textParts.join("\n") : undefined;
 }
 
 function extractErrorMessage(output: unknown): string {
+  if (typeof output === "string") return output;
+
   if (typeof output === "object" && output !== null) {
     const o = output as Record<string, unknown>;
+
+    if (Array.isArray(o.content) && o.content.length > 0) {
+      const textParts: string[] = [];
+      for (const block of o.content) {
+        if (typeof block === "object" && block !== null) {
+          const b = block as Record<string, unknown>;
+          if (b.type === "text" && typeof b.text === "string") {
+            textParts.push(b.text);
+          }
+        }
+      }
+      if (textParts.length > 0) {
+        return textParts.join("\n");
+      }
+    }
+
     if (typeof o.output === "string") return o.output;
     if (typeof o.result === "string") return o.result;
     if (o.metadata && typeof o.metadata === "object") {
@@ -219,7 +222,7 @@ function storeUnresolvedError(failure: FailureEvent, embedding: number[]) {
   saveUnresolved(unresolved);
 }
 
-function extractToolFromArgs(args: Record<string, unknown>): string {
+function extractToolFromArgs(args: Record<string, unknown>, fallbackTool?: string): string {
   if (args.command && typeof args.command === "string") {
     const cmd = args.command.split(" ")[0];
     if (cmd === "git" && args.command.includes("commit")) return "git-commit";
@@ -232,7 +235,7 @@ function extractToolFromArgs(args: Record<string, unknown>): string {
     if (cmd === "npm") return "npm";
     if (cmd === "node") return "node";
   }
-  return "unknown";
+  return fallbackTool || "unknown";
 }
 
 function learnWorkspaceConventions(tool: string, args: Record<string, unknown>, workspace: string, success: boolean) {
@@ -654,7 +657,7 @@ function cmdConfig(args: string[]): ChatResponse {
       text: `**⚙️ Config Options**
 
 \`learningMode\` - full | suggest | off
-\`autoInjectThreshold\` - 0.0 to 1.0 (default: 0.7)
+\`autoInjectThreshold\` - 0.0 to 1.0 (default: 0.5)
 \`confidenceDecay\` - true | false (default: true)
 \`showSequences\` - true | false (default: true)
 \`showConventions\` - true | false (default: true)
@@ -784,12 +787,20 @@ export const OpenLearnPlugin: Plugin = async (ctx) => {
   };
 
   const toolExecuteAfterHook = async (
-    input: { tool: string; args?: Record<string, unknown> },
-    output: { result?: unknown; output?: unknown; metadata?: Record<string, unknown> }
+    input: { tool: string; sessionID: string; callID: string; args: unknown },
+    output: {
+      title?: string;
+      output?: string;
+      result?: string;
+      content?: Array<{ type: string; text?: string }>;
+      metadata?: Record<string, unknown>;
+      isError?: boolean;
+    }
   ) => {
-    const toolOutput = output.output ?? output.result;
-    const failure = isFailure(toolOutput);
-    const toolName = extractToolFromArgs(input.args || {});
+    const errorResult = detectError(output as any);
+    const failure = errorResult.isError;
+    const toolOutput = errorResult.extractedErrorMessage ?? output.output ?? output.result ?? extractTextFromContent(output.content);
+    const toolName = extractToolFromArgs(input.args as Record<string, unknown> || {}, input.tool);
 
     if (toolSequence.length > 0 && toolSequence[toolSequence.length - 1].tool === toolName) {
       toolSequence[toolSequence.length - 1].success = !failure;
@@ -920,12 +931,10 @@ export const OpenLearnPlugin: Plugin = async (ctx) => {
   };
 
   const chatMessageHook = async (
-    input: { sessionID: string; agent?: string; cwd?: string },
+    input: { sessionID: string; agent?: string; model?: { providerID: string; modelID: string }; messageID?: string; variant?: string },
     output: { message: Record<string, unknown>; parts: Array<{ type: string; text?: string }> }
   ) => {
-    if (input.cwd) {
-      currentWorkspace = extractWorkspace(input.cwd);
-    }
+    // Note: cwd is not directly in chat.message hook input; session event provides workspace context
 
     const firstTextPart = output.parts.find(p => p.type === "text");
     if (!firstTextPart?.text) return;
@@ -1083,7 +1092,7 @@ export const OpenLearnPlugin: Plugin = async (ctx) => {
   };
 
   const chatParamsHook = async (
-    input: { sessionID: string; agent?: string },
+    input: { sessionID: string; agent: string; model: unknown; provider: unknown; message: unknown },
     output: { temperature?: number; topP?: number; topK?: number; options: Record<string, unknown> }
   ) => {
     const lessons = loadAllLessons().filter(l => l.status === "active");
@@ -1100,13 +1109,13 @@ export const OpenLearnPlugin: Plugin = async (ctx) => {
   };
 
   const toolExecuteBeforeHook = async (
-    input: { tool: string; args?: Record<string, unknown> },
-    output: Record<string, unknown>
+    input: { tool: string; sessionID: string; callID: string },
+    output: { args: unknown }
   ) => {
-    currentTool = extractToolFromArgs(input.args || {});
+    currentTool = extractToolFromArgs(input.args as Record<string, unknown> || {}, input.tool);
 
-    if (input.args?.cwd) {
-      currentWorkspace = extractWorkspace(input.args.cwd as string);
+    if (input.args && typeof input.args === 'object' && 'cwd' in input.args) {
+      currentWorkspace = extractWorkspace(String((input.args as Record<string, unknown>).cwd));
     }
 
     const lessons = loadAllLessons().filter(l => l.status === "active");
@@ -1171,7 +1180,23 @@ export const OpenLearnPlugin: Plugin = async (ctx) => {
     }
   };
 
-  const eventHook = async (input: { event: { type: string; properties?: Record<string, unknown> } }, output: Record<string, unknown>) => {
+  const chatSystemTransformHook = async (
+    input: { sessionID?: string; model: { providerID: string; modelID: string } },
+    output: { system: string[] }
+  ) => {
+    const cfg = loadConfig();
+    if (cfg.learningMode === "off") return;
+
+    const lessons = loadAllLessons().filter(l => l.status === "active");
+    if (lessons.length === 0) return;
+
+    const contextBlock = buildLearnedContextBlock(lessons, currentWorkspace, cfg.autoInjectThreshold);
+    if (!contextBlock) return;
+
+    output.system.push(contextBlock);
+  };
+
+  const eventHook = async (input: { event: { type: string; properties?: Record<string, unknown> } }) => {
     const event = input.event;
     if (event.type === "session.created") {
       const props = event.properties as { cwd?: string } | undefined;
@@ -1181,22 +1206,21 @@ export const OpenLearnPlugin: Plugin = async (ctx) => {
       toolSequence = [];
       const cfg = loadConfig();
       const pending = loadPending();
-      const lessons = loadAllLessons().filter(l => l.status === "active");
 
       if (cfg.learningMode !== "off" && pending.length > 0) {
-        output.hint = `[openlearn] 📚 ${pending.length} pending lesson(s) awaiting review. Run \`openlearn: review\` or \`openlearn: list --pending\``;
+        // Cannot modify output in event hook - just log for now
+        console.log(`[openlearn] ${pending.length} pending lesson(s) awaiting review.`);
       }
     }
   };
 
   return {
     name: "openlearn",
-    hooks: {
-      toolExecuteAfterHook,
-      chatMessageHook,
-      chatParamsHook,
-      toolExecuteBeforeHook,
-      eventHook
-    }
+    "tool.execute.after": toolExecuteAfterHook,
+    "chat.message": chatMessageHook,
+    "chat.params": chatParamsHook,
+    "tool.execute.before": toolExecuteBeforeHook,
+    "event": eventHook,
+    "experimental.chat.system.transform": chatSystemTransformHook
   };
 };

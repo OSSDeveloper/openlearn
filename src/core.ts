@@ -12,7 +12,7 @@ export const ZVEC_PATH = path.join(DATA_DIR, "lessons.zvec");
 export const SEQ_ZVEC_PATH = path.join(DATA_DIR, "sequences.zvec");
 export const CONV_ZVEC_PATH = path.join(DATA_DIR, "conventions.zvec");
 export const UNRESOLVED_PATH = path.join(DATA_DIR, "unresolved.json");
-export const AUTO_INJECT_THRESHOLD = 0.7;
+export const AUTO_INJECT_THRESHOLD = 0.5;
 
 export type LearningMode = "full" | "suggest" | "off";
 
@@ -106,7 +106,7 @@ export type ChatResponse = {
 
 export const DEFAULT_CONFIG: Config = {
   learningMode: "full",
-  autoInjectThreshold: 0.7,
+  autoInjectThreshold: 0.5,
   confidenceDecay: true,
   showSequences: true,
   showConventions: true,
@@ -426,4 +426,21 @@ export function textToEmbedding(text: string): number[] {
   }
 
   return embedding;
+}
+
+export function buildLearnedContextBlock(
+  lessons: Lesson[],
+  workspace: string,
+  autoInjectThreshold: number
+): string | null {
+  const relevant = lessons.filter(l => {
+    if (l.confidence < autoInjectThreshold) return false;
+    const workspaceMatch = l.workspacePattern === "*" || workspace.includes(l.workspacePattern);
+    return workspaceMatch;
+  });
+
+  if (relevant.length === 0) return null;
+
+  const lessonTexts = relevant.map(l => `[LEARNED] ${l.constraint}`).join("\n");
+  return `[openlearn] Learned constraints:\n${lessonTexts}`;
 }

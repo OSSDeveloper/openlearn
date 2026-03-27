@@ -2,6 +2,8 @@
 
 **⚡ The self-correcting memory layer for coding agents.**
 
+> ⚠️ **Technical Note**: MCP (Model Context Protocol) tool errors cannot be auto-learned due to OpenCode's hook architecture. Native tool errors (bash, shell) work correctly. See [limitations](#limitations) for details.
+
 Your agent is smart.  
 But it has amnesia.
 
@@ -155,6 +157,27 @@ Run /openlearn-list [filter=pending] for pending review
 
 ---
 
+## ⚠️ Limitations
+
+### MCP Tool Error Detection
+
+openlearn has a **fundamental architectural limitation** regarding MCP (Model Context Protocol) tool errors:
+
+**What works:**
+- ✅ Native tool failures (bash commands, shell scripts, etc.)
+- ✅ Permission errors, file not found, connection timeouts
+- ✅ Permission denied, access forbidden, authentication failures
+
+**What doesn't work:**
+- ❌ MCP tool errors (e.g., filesystem MCP server errors)
+- ❌ Errors returned via MCP's `isError: true` flag
+
+**Why:** OpenCode's `tool.execute.after` hook is only called for successful native tool executions. MCP tool results (including errors with `isError: true`) flow through a separate internal channel (`SyncEvent.Bus`) that plugins cannot access.
+
+This is a limitation of OpenCode's plugin architecture, not openlearn. The error detection module is robust and would work if OpenCode exposed MCP tool results to hooks.
+
+---
+
 ## 🔮 Vision
 
 This is just the beginning.
@@ -181,5 +204,5 @@ Built with obsession for eliminating repetitive friction in agentic coding. ❤�
 ---
 
 **📦 Repository**: [github.com/OSSDeveloper/openlearn](https://github.com/OSSDeveloper/openlearn)  
-**🔖 Version**: 2.0.5  
+**🔖 Version**: 0.0.1  
 **📄 License**: MIT
