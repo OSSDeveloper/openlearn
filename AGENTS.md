@@ -75,3 +75,37 @@ Before writing code or making changes:
 ## Reminder
 
 **STOP** - Before writing ANY code or planning ANY feature, you MUST have read the relevant OpenCode source files. Documentation can be wrong or incomplete. Source code does not lie.
+
+## Publishing Rules (CRITICAL)
+
+**Publishing to npm MUST happen via GitHub Actions ONLY. NEVER publish manually.**
+
+### Why This Rule Exists
+- Manual publishing creates version inconsistencies between git tags and npm
+- GitHub Actions ensures every publish is tied to a git tag and commit
+- Maintains complete audit trail of what was released
+
+### How to Publish
+1. Make and commit your changes
+2. Create a git tag: `git tag v<x.y.z>`
+3. Push the tag: `git push origin v<x.y.z>`
+4. GitHub Actions will automatically:
+   - Run tests
+   - Build the project
+   - Publish to npm
+   - Create a GitHub Release
+
+### When Ready to Publish
+```bash
+git tag v0.0.2 && git push origin v0.0.2
+```
+
+### GitHub Actions Workflow
+See `.github/workflows/release.yml` - it triggers on:
+- Push to `main`/`master` branches (runs tests only)
+- Push of tags starting with `v` (runs tests + publishes + creates release)
+
+### If GitHub Actions Fails
+- Do NOT manually run `npm publish`
+- Fix the issue in code, push a new commit, and push a new tag
+- The release workflow must pass for the package to be published
